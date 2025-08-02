@@ -7,13 +7,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY --from=docker.io/denoland/deno:bin-2.4.3 /deno /usr/local/bin/deno
 
 # Copy Bun from official image
-COPY --from=docker.io/oven/bun:latest /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=docker.io/oven/bun:latest /usr/local/bin/bun /usr/local/bin/bunx /usr/local/bin/
 
 # Update system and install base dependencies
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y \
     build-essential \
     git \
+    git-extras \
     curl \
     wget \
     vim \
@@ -23,7 +24,17 @@ RUN apt-get update && apt-get upgrade -y && \
     apt-transport-https \
     software-properties-common \
     gnupg \
-    lsb-release
+    lsb-release \
+    locales \
+    locales-all
+
+# Configure locale
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
+    sed -i '/zh_CN.UTF-8/s/^# //g' /etc/locale.gen && \
+    locale-gen
+ENV LANG=en_US.UTF-8 \
+    LANGUAGE=en_US:en \
+    LC_ALL=en_US.UTF-8
 
 # Install development tools
 RUN apt-get install -y \
@@ -33,7 +44,9 @@ RUN apt-get install -y \
     tree \
     unzip \
     zip \
-    protobuf-compiler
+    protobuf-compiler \
+    pkg-config \
+    libssl-dev
 
 # Install Node.js LTS via NodeSource repository
 RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
@@ -53,56 +66,38 @@ RUN ARCH="$(dpkg --print-architecture)"; \
     wget -O- "https://go.dev/dl/go1.24.5.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xzf -
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Install useful tools
-# Install ripgrep
-RUN ARCH="$(dpkg --print-architecture)"; \
-    case "${ARCH}" in \
-        amd64) RIPGREP_ARCH='x86_64-unknown-linux-musl' ;; \
-        arm64) RIPGREP_ARCH='aarch64-unknown-linux-musl' ;; \
-        *) echo "Unsupported architecture for ripgrep: ${ARCH}" && exit 1 ;; \
-    esac && \
-    curl -LO "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-${RIPGREP_ARCH}.tar.gz" && \
-    tar -xzf "ripgrep-14.1.1-${RIPGREP_ARCH}.tar.gz" && \
-    mv "ripgrep-14.1.1-${RIPGREP_ARCH}/rg" /usr/local/bin/ && \
-    rm -rf ripgrep-14.1.1-*
-
-# Install fd
-RUN ARCH="$(dpkg --print-architecture)"; \
-    case "${ARCH}" in \
-        amd64) FD_ARCH='x86_64-unknown-linux-musl' ;; \
-        arm64) FD_ARCH='aarch64-unknown-linux-musl' ;; \
-        *) echo "Unsupported architecture for fd: ${ARCH}" && exit 1 ;; \
-    esac && \
-    curl -LO "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-${FD_ARCH}.tar.gz" && \
-    tar -xzf "fd-v10.2.0-${FD_ARCH}.tar.gz" && \
-    mv "fd-v10.2.0-${FD_ARCH}/fd" /usr/local/bin/ && \
-    rm -rf fd-v10.2.0-*
-
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y gh
-
-# Install ast-grep
-RUN ARCH="$(dpkg --print-architecture)"; \
-    case "${ARCH}" in \
-        amd64) AST_GREP_ARCH='x86_64-unknown-linux-gnu' ;; \
-        arm64) AST_GREP_ARCH='aarch64-unknown-linux-gnu' ;; \
-        *) echo "Unsupported architecture for ast-grep: ${ARCH}" && exit 1 ;; \
-    esac && \
-    curl -LO "https://github.com/ast-grep/ast-grep/releases/download/0.39.2/app-${AST_GREP_ARCH}.zip" && \
-    unzip "app-${AST_GREP_ARCH}.zip" && \
-    mv ast-grep /usr/local/bin/ && \
-    rm -rf app-*
+chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+apt-get update && \
+apt-get install -y gh
 
 # Install Rust as root
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install Claude Code globally
-RUN npm install -g @anthropic-ai/claude-code
+# Install cargo-binstall and cargo tools using pre-compiled binaries
+RUN cargo install cargo-binstall && \
+    cargo binstall -y \
+    ast-grep \
+    ripgrep \
+    fd-find \
+    typos-cli \
+    cargo-deny \
+    cargo-nextest \
+    cargo-generate \
+    cargo-udeps \
+    cargo-outdated \
+    cargo-expand \
+    --locked && \
+    rm -rf /root/.cargo/registry && \
+    rm -rf /root/.cargo/git && \
+    rm -rf /tmp/*
+
+# Install Claude Code globally and clean npm cache
+RUN npm install -g @anthropic-ai/claude-code && \
+    npm cache clean --force
 
 # Clean package cache
 RUN apt-get autoremove -y && \
@@ -115,4 +110,9 @@ WORKDIR /workspace
 # Set shell to bash
 SHELL ["/bin/bash", "-c"]
 
-CMD ["claude", "--dangerously-skip-permissions"]
+ENV IS_SANDBOX=1
+
+CMD tmux new-session -d -s dev -n claude 'claude --dangerously-skip-permissions' \; \
+    new-window -n terminal \; \
+    select-window -t claude \; \
+    attach-session
