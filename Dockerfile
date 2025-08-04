@@ -104,6 +104,9 @@ RUN apt-get autoremove -y && \
     apt-get autoclean && \
     rm -rf /var/lib/apt/lists/*
 
+# Copy tmux configuration
+COPY .tmux.conf /root/.tmux.conf
+
 # Set working directory
 WORKDIR /workspace
 
