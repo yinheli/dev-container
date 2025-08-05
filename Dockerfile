@@ -113,6 +113,7 @@ WORKDIR /workspace
 # Set shell to bash
 SHELL ["/bin/bash", "-c"]
 
+# This allows claude run as root and skip permissions check
 ENV IS_SANDBOX=1
 
 CMD tmux new-session -d -s dev -n claude 'claude --dangerously-skip-permissions' \; \
